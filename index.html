@@ -123,26 +123,36 @@
     async function predict() {
         const prediction = await model.predict(webcam.canvas);
         let noHelmetProb = 0;
+        let helmetProb = 0;
 
+        // ดึงค่าความน่าจะเป็นของทั้งสอง Class
         for (let i = 0; i < maxPredictions; i++) {
             if (prediction[i].className === "No Helmet") {
                 noHelmetProb = prediction[i].probability;
+            } else if (prediction[i].className === "Helmet") { // ตรวจสอบ Class สวมหมวก
+                helmetProb = prediction[i].probability;
             }
         }
 
         const statusBox = document.getElementById("status-box");
 
-        // ตรวจพบไม่สวมหมวก
+        // เงื่อนไขการแสดงผลแยกวัตถุทั่วไปออกจากหมวกกันน็อค
         if (noHelmetProb > 0.8) {
+            // มั่นใจเกิน 80% ว่าไม่สวมหมวก
             statusBox.innerHTML = `⚠️ ไม่สวมหมวก! (${(noHelmetProb * 100).toFixed(0)}%)`;
             statusBox.className = "alert";
             
             if (alarmSound.paused) {
                 alarmSound.play();
             }
-        } else {
+        } else if (helmetProb > 0.8) {
+            // มั่นใจเกิน 80% ว่าสวมหมวก
             statusBox.innerHTML = `✅ สวมหมวก`;
             statusBox.className = "safe";
+        } else {
+            // สิ่งของทั่วไป หรือความมั่นใจไม่ถึง 80%
+            statusBox.innerHTML = `💤 รอการตรวจจับ`;
+            statusBox.className = "idle";
         }
     }
 </script>
