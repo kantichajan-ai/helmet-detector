@@ -38,7 +38,6 @@
     // [ฟีเจอร์ที่ 1] ตัวแปร Motion Detection
     let prevFrameCtx = null;
     let prevFrameCanvas = null;
-    const MOTION_THRESHOLD = 15;
 
     // [ฟีเจอร์ที่ 2] ตัวแปรจำสถานะล่าสุด (ค้างสถานะไว้ 5 วินาทีถ้ารถจอดนิ่ง)
     let lastMotionTime = 0; 
@@ -77,14 +76,13 @@
         const statusBox = document.getElementById("status-box");
 
         if (isMoving) {
+            // มีการเคลื่อนไหวชัดเจน ให้อัปเดตเวลา และเรียก AI ตรวจจับ
             lastMotionTime = currentTime;
             await predict();
         } else {
-            // [ฟีเจอร์ที่ 2] ถ้ารถจอดนิ่งแต่ยังไม่เกิน 5 วินาที ให้ตรวจจับต่อด้วยสถานะล่าสุด
-            if (currentTime - lastMotionTime < HOLD_STATE_DURATION) {
-                await predict();
-            } else {
-                statusBox.innerHTML = `💤 รอตรวจจับ (ไม่มีการเคลื่อนไหว)`;
+            // ถ้านิ่ง แต่เพิ่งเริ่มเปิดระบบยังไม่เคยขยับเลย หรือนิ่งเกิน 5 วินาทีแล้ว ให้ขึ้น "รอการตรวจจับ"
+            if (lastMotionTime === 0 || (currentTime - lastMotionTime >= HOLD_STATE_DURATION)) {
+                statusBox.innerHTML = `💤 รอการตรวจจับ`;
                 statusBox.className = "idle";
             }
         }
@@ -110,13 +108,16 @@
             const gDiff = Math.abs(currentData[i+1] - prevData[i+1]);
             const bDiff = Math.abs(currentData[i+2] - prevData[i+2]);
 
-            if (rDiff + gDiff + bDiff > 100) {
+            // ปรับเพิ่มเป็น 150 เพื่อกรอง Noise ของแสงกล้องตอนนั่งนิ่งๆ
+            if (rDiff + gDiff + bDiff > 150) {
                 diffCount++;
             }
         }
 
         prevFrameCtx.putImageData(currentCtx.getImageData(0, 0, 320, 320), 0, 0);
-        return diffCount > MOTION_THRESHOLD;
+        
+        // ต้องขยับเกิน 35 พิกเซลขึ้นไปถึงถือว่ามีการเคลื่อนไหว
+        return diffCount > 35;
     }
 
     async function predict() {
@@ -140,7 +141,7 @@
                 alarmSound.play();
             }
         } else {
-            statusBox.innerHTML = `✅ สวมหมวกถูกต้อง`;
+            statusBox.innerHTML = `✅ สวมหมวก`;
             statusBox.className = "safe";
         }
     }
