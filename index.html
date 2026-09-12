@@ -39,9 +39,9 @@
     let prevFrameCtx = null;
     let prevFrameCanvas = null;
 
-    // [ฟีเจอร์ที่ 2] ตัวแปรจำสถานะล่าสุด (ค้างสถานะไว้ 5 วินาทีถ้ารถจอดนิ่ง)
+    // [ฟีเจอร์ที่ 2] ตัวแปรจำสถานะล่าสุด (ค้างสถานะไว้ 3 วินาทีถ้ารถจอดนิ่ง)
     let lastMotionTime = 0; 
-    const HOLD_STATE_DURATION = 5000; 
+    const HOLD_STATE_DURATION = 3000;
 
     async function init() {
         const modelURL = URL + "model.json";
@@ -80,7 +80,7 @@
             lastMotionTime = currentTime;
             await predict();
         } else {
-            // ถ้านิ่ง แต่เพิ่งเริ่มเปิดระบบยังไม่เคยขยับเลย หรือนิ่งเกิน 5 วินาทีแล้ว ให้ขึ้น "รอการตรวจจับ"
+            // ถ้านิ่ง แต่เพิ่งเริ่มเปิดระบบยังไม่เคยขยับเลย หรือนิ่งเกิน 3 วินาทีแล้ว ให้ขึ้น "รอการตรวจจับ"
             if (lastMotionTime === 0 || (currentTime - lastMotionTime >= HOLD_STATE_DURATION)) {
                 statusBox.innerHTML = `💤 รอการตรวจจับ`;
                 statusBox.className = "idle";
