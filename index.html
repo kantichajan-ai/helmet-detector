@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ระบบตรวจจับการสวมหมวกกันน็อค</title>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; background: #f0f2f5; margin: 0; padding: 20px; }
+        .container { max-width: 400px; margin: auto; background: white; padding: 20px; border-radius: 16px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        #webcam-container { margin: 15px 0; overflow: hidden; border-radius: 12px; background: #000; display: inline-block; }
+        .btn { background: #007bff; color: white; border: none; padding: 14px 24px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%; }
+        #status-box { font-size: 18px; font-weight: bold; margin-top: 15px; padding: 12px; border-radius: 8px; background: #e9ecef; }
+        .alert { background: #ffe3e3 !important; color: #dc3545 !important; border: 1px solid #dc3545; }
+        .safe { background: #d4edda !important; color: #28a745 !important; border: 1px solid #28a745; }
+        .idle { background: #e2e3e5 !important; color: #383d41 !important; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h2>ระบบตรวจจับการสวมหมวกกันน็อค</h2>
+    <div id="webcam-container"></div>
+    <button class="btn" onclick="init()">เปิดกล้องและเริ่มระบบ</button>
+    <div id="status-box">กดปุ่มเพื่อเริ่มทำงาน</div>
+</div>
+
+<audio id="alarm" src="https://actions.google.com/sounds/v1/alarms/beep_short.ogg" preload="auto"></audio>
+
+<script>
+    // 1. ลิงก์ Model จาก Teachable Machine
+    const URL = "https://teachablemachine.withgoogle.com/models/zeCebPJzA/"; 
+
+    let model, webcam, maxPredictions;
+    let alarmSound = document.getElementById("alarm");
+
+    // [ฟีเจอร์ที่ 1] ตัวแปร Motion Detection
+    let prevFrameCtx = null;
+    let prevFrameCanvas = null;
+    const MOTION_THRESHOLD = 15;
+
+    // [ฟีเจอร์ที่ 2] ตัวแปรจำสถานะล่าสุด (ค้างสถานะไว้ 5 วินาทีถ้ารถจอดนิ่ง)
+    let lastMotionTime = 0; 
+    const HOLD_STATE_DURATION = 5000; 
+
+    async function init() {
+        const modelURL = URL + "model.json";
+        const metadataURL = URL + "metadata.json";
+
+        document.getElementById("status-box").innerText = "กำลังโหลดโมเดล...";
+
+        model = await tmImage.load(modelURL, metadataURL);
+        maxPredictions = model.getTotalClasses();
+
+        const flip = false;
+        webcam = new tmImage.Webcam(320, 320, flip);
+        await webcam.setup({ facingMode: "environment" });
+        await webcam.play();
+        
+        document.getElementById("webcam-container").appendChild(webcam.canvas);
+
+        prevFrameCanvas = document.createElement('canvas');
+        prevFrameCanvas.width = 320;
+        prevFrameCanvas.height = 320;
+        prevFrameCtx = prevFrameCanvas.getContext('2d');
+
+        window.requestAnimationFrame(loop);
+    }
+
+    async function loop() {
+        webcam.update();
+        
+        // [ฟีเจอร์ที่ 1] ตรวจจับการเคลื่อนไหว
+        const isMoving = detectMotion();
+        const currentTime = Date.now();
+        const statusBox = document.getElementById("status-box");
+
+        if (isMoving) {
+            lastMotionTime = currentTime;
+            await predict();
+        } else {
+            // [ฟีเจอร์ที่ 2] ถ้ารถจอดนิ่งแต่ยังไม่เกิน 5 วินาที ให้ตรวจจับต่อด้วยสถานะล่าสุด
+            if (currentTime - lastMotionTime < HOLD_STATE_DURATION) {
+                await predict();
+            } else {
+                statusBox.innerHTML = `💤 รอตรวจจับ (ไม่มีการเคลื่อนไหว)`;
+                statusBox.className = "idle";
+            }
+        }
+
+        window.requestAnimationFrame(loop);
+    }
+
+    function detectMotion() {
+        const currentCtx = webcam.canvas.getContext('2d');
+        const currentData = currentCtx.getImageData(0, 0, 320, 320).data;
+        
+        if (!prevFrameCtx.hasData) {
+            prevFrameCtx.putImageData(currentCtx.getImageData(0, 0, 320, 320), 0, 0);
+            prevFrameCtx.hasData = true;
+            return false;
+        }
+
+        const prevData = prevFrameCtx.getImageData(0, 0, 320, 320).data;
+        let diffCount = 0;
+
+        for (let i = 0; i < currentData.length; i += 16) {
+            const rDiff = Math.abs(currentData[i] - prevData[i]);
+            const gDiff = Math.abs(currentData[i+1] - prevData[i+1]);
+            const bDiff = Math.abs(currentData[i+2] - prevData[i+2]);
+
+            if (rDiff + gDiff + bDiff > 100) {
+                diffCount++;
+            }
+        }
+
+        prevFrameCtx.putImageData(currentCtx.getImageData(0, 0, 320, 320), 0, 0);
+        return diffCount > MOTION_THRESHOLD;
+    }
+
+    async function predict() {
+        const prediction = await model.predict(webcam.canvas);
+        let noHelmetProb = 0;
+
+        for (let i = 0; i < maxPredictions; i++) {
+            if (prediction[i].className === "No Helmet") {
+                noHelmetProb = prediction[i].probability;
+            }
+        }
+
+        const statusBox = document.getElementById("status-box");
+
+        // ตรวจพบไม่สวมหมวก
+        if (noHelmetProb > 0.8) {
+            statusBox.innerHTML = `⚠️ ไม่สวมหมวก! (${(noHelmetProb * 100).toFixed(0)}%)`;
+            statusBox.className = "alert";
+            
+            if (alarmSound.paused) {
+                alarmSound.play();
+            }
+        } else {
+            statusBox.innerHTML = `✅ สวมหมวกถูกต้อง`;
+            statusBox.className = "safe";
+        }
+    }
+</script>
+</body>
+</html>
